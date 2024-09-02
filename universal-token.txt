@@ -1,0 +1,208 @@
+\begin{lstlisting}[language=Tamarin]
+theory IbeRevocByUniversalToken
+begin
+
+builtins: asymmetric-encryption, hashing
+functions: ibenc/3, ibdec/2, usk_der/2, msk_der/1
+equations: ibdec(ibenc(m, I, pk(msk_der(msk_inside))), usk_der(I, msk_inside)) = m
+
+rule setup:
+    let 
+	msk = msk_der(~msk_fresh)
+	mpk = pk(msk)
+    in
+    [ Fr(~msk_fresh)          
+    , Fr(~t)
+    ]
+    --[ SetupOnlyOnce(), Is_Epoch(~t), Setup_MSK(msk, ~t)]-> 
+    [ ... ]
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=26]	
+rule generate_user_key:
+    let
+	msk_curr = msk_der(msk_inside)
+    usk = usk_der($I, msk_inside)
+    in
+	...    
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=47]
+rule update_msk:
+	let
+	msk_old = msk_der(msk_old_inside)
+	msk_new = msk_der(<~upd_val, msk_old_inside>)  
+	mpk_new = pk(msk_new)
+	in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=63]
+rule distribute_token:
+	let
+	msk_new = msk_der(<~upd_val, msk_old>)  (*@\label{line:univ-comp-upd-val}@*)
+	update_value = ~upd_val
+	in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=75]
+rule update_usk:
+    let
+	usk_old = usk_der($I, old_value) (*@\label{line:univ-comp-usk}@*)
+    usk_new = usk_der($I,<~upd_val, old_value>)
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=88]
+rule encrypt_message:
+    let 
+    cipher = ibenc(~m, $I, mpk)
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=101]
+rule decrypt_message:
+    let 
+		msk = msk_der(msk_inside)
+        usk = usk_der($I, msk_inside)
+        cipher = ibenc(~m, $I, pk(msk))
+        m_dec = ibdec(cipher, usk)
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=115]
+// additional rules
+rule usk_der_math: (*@\label{line:univ-usk-der}@*)
+	[ In(usk_der($I,exponent)) 
+	, In(~upd_val)]		
+	--[USK_der()]->
+	[ Out(usk_der($I,<~upd_val, exponent>))] 
+
+rule usk_diff_math: (*@\label{line:univ-usk-diff}@*)
+	[In(usk_der($I,<~exponent1,exponent2>))
+	,In(~exponent1)]
+	--[ USK_diff() ]->
+	[Out(usk_der($I,exponent2))]
+	
+rule msk_yield_usk: (*@\label{line:univ-msk-yield}@*)
+	[In(msk_der(msk_inside))]
+	-->
+	[Out(usk_der($I, msk_inside))]
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=182]
+//additional restrictions
+
+restriction only_four_epochs:
+	"All msk2 msk3 msk4 msk5 t2 t3 t4 t5 #i #j #k #l. 
+		Update_MSK(msk2, t2)@ #i
+	&	Update_MSK(msk3, t3)@ #j
+	&	Update_MSK(msk4, t4)@ #k
+	&	Update_MSK(msk5, t5)@ #l
+	&   not (msk2 = msk3)
+	&   not (msk3 = msk4)
+	&   not (msk2 = msk4)
+	==> #i = #l | #j = #l | #k = #l"
+
+restriction USK_der_rule_only_four_times:
+	"All #i #j #k #l #m.
+		USK_der()@ #i
+	&	USK_der()@ #j
+	&	USK_der()@ #k
+	&	USK_der()@ #l
+	&	USK_der()@ #m
+	==> #i = #m | #j = #m | #k = #m | #l = #m"
+
+restriction USK_diff_rule_only_four_times:
+	"All #i #j #k #l #m.
+		USK_diff()@ #i
+	&	USK_diff()@ #j
+	&	USK_diff()@ #k
+	&	USK_diff()@ #l
+	&	USK_diff()@ #m
+	==> #i = #m | #j = #m | #k = #m | #l = #m"
+	
+//sources lemma
+lemma master_upd_only_three_times [sources]:
+	"All upd_val_i msk t #j. Update_MSK(<upd_val_i, msk>, t)@ #j 
+	==> ((Ex t2 #i. Setup_MSK(msk, t2)@ #i & i < j)  // @ #j is first update
+	|	(Ex  upd_val_2 msk1 t2 #i. msk = <upd_val_2, msk1> & Setup_MSK(msk1, t2)@ #i & i <j)	// @ #j is second update
+	|	(Ex upd_val_3 upd_val_2 msk1 t2 #i. msk = <upd_val_3, upd_val_2, msk1> & Setup_MSK(msk1,t2)@ #i & i<j))" //@ #j is third update
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=332]	
+lemma decryption_key_exposure_resistance_backward:
+	"All I t1 t2 usk1 usk2 #i #j #k. 
+	Exists_Key(I, usk1, t1)@ #i
+	& Is_Epoch(t1)@ #i
+	& Exists_Key(I, usk2, t2)@#j 
+	& #i < #j
+	& LeakUSK(I, t1)@ #k
+	==> not (Ex #l. K(usk2)@ #l)
+		| (Ex #l. LeakUSK(I,t2)@ #l)
+		| (Ex #l. LeakMSK(t2)@ #l)
+		| (Ex #l #y R t. LeakMSK(t)@ #l & LeakUpdVal(R,t2)@ #y)
+		"
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, firstnumber=497]
+lemma collusion_resistance_proof:
+	"All I m t #i.
+	Sent(m, I)@ #i
+	& Is_Epoch(t)@ #i
+	& not (Ex #j. Create_Update(I, t)@ #j)
+	& not (Ex #j. GenUSK(I)@ #j & Is_Epoch(t)@ #j)
+	==> not(Ex #l. K(m)@ #l)
+		| (Ex #l t. LeakMSK(t)@ #l)
+		| (Ex R t2 #l #x. Consecutive(t,t2)@ #x & LeakUpdVal(R, t2)@ #l)
+		| (Ex R #l. LeakUpdVal(R, t)@ #l)
+		"
+		
+lemma collusion_resistance_proof_token_old:
+	"All I m t #i.
+	Sent(m, I)@ #i
+	& Is_Epoch(t)@ #i
+	& not (Ex #j. Create_Update(I, t)@ #j)
+	& not (Ex #j. GenUSK(I)@ #j & Is_Epoch(t)@ #j)
+	==> not(Ex #l. K(m)@ #l)
+		| (Ex #l t. LeakMSK(t)@ #l)
+		// | (Ex R t2 #l #x. Consecutive(t,t2)@ #x & LeakUpdVal(R, t2)@ #l)
+		| (Ex R #l. LeakUpdVal(R, t)@ #l)
+		"
+
+lemma collusion_resistance_proof_token_curr:
+	"All I m t #i.
+	Sent(m, I)@ #i
+	& Is_Epoch(t)@ #i
+	& not (Ex #j. Create_Update(I, t)@ #j)
+	& not (Ex #j. GenUSK(I)@ #j & Is_Epoch(t)@ #j)
+	==> not(Ex #l. K(m)@ #l)
+		| (Ex #l t. LeakMSK(t)@ #l)
+		| (Ex R t2 #l #x. Consecutive(t,t2)@ #x & LeakUpdVal(R, t2)@ #l)
+		// | (Ex R #l. LeakUpdVal(R, t)@ #l)
+		"
+\end{lstlisting}   

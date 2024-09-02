@@ -1,0 +1,97 @@
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt]
+theory IbeRevocByIndividualTokenSeparate
+begin
+
+builtins: asymmetric-encryption, hashing
+functions: ibenc/4, ibdec/2, token/3
+equations: ibdec(ibenc(m, I, pk(msk), t), <h(I, msk), token(I, msk, t)>) = m
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=25]
+rule generate_user_key:
+    let 
+    susk = h($I, ~msk)
+	token = token($I, ~msk,~t)
+	usk = < susk, token >
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=49]
+rule distribute_token:
+	let
+	update_value = token($I, ~msk, ~t_new) (*@\label{line:indsep-comp-upd-val}@*)
+	in
+	[ !Epoch(~t_new)
+	, !MSK(~msk)
+	]
+	--[ Is_Epoch(~t_new), Create_Update($I, ~t_new) ]->
+	[ !Update_Value($I, ~t_new, update_value)
+	, Out(update_value) ] (*@\label{line:indsep-output-token}@*)
+
+rule update_usk:
+    let 
+    susk = h($I, ~msk)
+	token_old = token($I, ~msk, ~t_old)  
+	usk_old = < susk, token_old >
+	usk_new = < susk, upd_val >  (*@\label{line:indsep-upd-usk}@*)
+    in
+	... 
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=76]
+rule encrypt_message:
+    let 
+		cipher = ibenc(~m, $I, mpk, ~t)
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=89]
+rule decrypt_message:
+    let 
+        susk = h($I, ~msk)
+		token = token($I, ~msk, ~t)
+		usk = < susk, token >
+        cipher = ibenc(m, $I, pk(~msk), ~t)
+        m_dec = ibdec(cipher, usk)
+    in
+	...
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=106]
+// Key  Leaks as defined in the adversary model
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=122]
+rule leak_static_usk:
+	[ !SUSK(key, $I) ]
+	--[LeakSUSK($I)]->
+	[ Out(key) ]
+\end{lstlisting} 
+ 
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=157]
+lemma can_receive: exists-trace 
+    /* There exists a session in which a user can decrypt a message. */
+    "Ex m #j. Receive(m)@ #j
+    & not (Ex #i t N. LeakUSK(N,t)@ #i)
+	& not (Ex #i. LeakMSK()@ #i)
+	& not (Ex I t #l. LeakUpdVal(I,t)@ #l)
+	& not (Ex #i N. LeakSUSK(N)@ #i)
+	"
+
+\end{lstlisting}

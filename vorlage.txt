@@ -1,0 +1,599 @@
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt]
+theory %theory name
+begin
+
+builtins: asymmetric-encryption, hashing %further built-in(s)
+functions: ibenc/4, ibdec/2 %further function(s) %adjust arity if necessary
+equations: %the encryption/decryption equation of each model (*@\label{line:placeh-eq}@*)
+	% and any further equation(s)
+
+// Setup of the master key material and start of first epoch
+	rule setup: (*@\label{line:rule-setup}@*)
+	let 
+	mpk = pk(~msk)
+	in
+	[ Fr(~msk)          // msk is a fresh random value
+	, Fr(~t)            // first epoch identifier is a fresh random value
+	]
+	--[ SetupOnlyOnce(), Is_Epoch(~t) ]-> // system is set up only once, which happens in epoch t
+	[ !MSK(~msk, ~t)
+	, !MPK(mpk, ~t)             
+	, !Epoch(~t)
+	, Out(mpk)          // mpk and epoch identifier are public values
+	, Out(~t) ]              
+
+
+// Generation of key material for a user I from scratch in an epoch t
+rule generate_usk: (*@\label{line:rule-gen_usk}@*)
+	let 
+	%formula for the computation of usk (*@\label{line:placeh-gen-usk}@*)
+	in
+	[ !Epoch(~t)            // current epoch is t
+	, !MSK(msk, ~t) ]       // and msk exists
+	--[ GenUSK($I), Is_Epoch(~t), Exists_Key($I, usk, ~t) ]->
+	[ !USK(usk, $I, ~t) %byproduct facts]    // usk for I and epoch t exists
+	
+//  Advance the system to the next epoch
+	rule advance_epoch: (*@\label{line:rule-advance-ep}@*)
+	[ !Epoch(~t1)           // If epoch t1 exists,
+	, Fr(~t2)               // draw a fresh random value.
+	]
+	--[ Epoch_ended(~t1), Consecutive(~t1, ~t2) ]->
+	[ !Epoch(~t2)               // epoch t2 exists
+	, !PreviousEpoch(~t1,~t2)   // epoch t2 directly follows epoch t1
+	, Out(~t2)]                 // epoch identifier t2 is public knowledge
+
+//Update the master key material
+rule update_msk: (*@\label{line:rule-update-msk}@*)
+	let
+	msk_new = %formula for msk update (*@\label{line:placeh-upd-msk}@*)
+	mpk_new = pk(msk_new)
+	in
+	[ !Epoch(~t_new)   	// If epoch t1 exists 
+	, !PreviousEpoch(~t_old, ~t_new) // as a follower of epoch t_old,
+	, !MSK(msk_old, ~t_old) // and msk_old is the master secret from the previous epoch,
+	, Fr(~upd_val) ]	// choose a fresh value to apply as an update.
+	--[ Update_MSK(msk_new, ~t_new), Is_Epoch(~t_new) ]->
+	[ !MSK(msk_new, ~t_new)  //msk_new exists 
+	, !MPK(mpk_new, ~t_new)	 //mpk_new exists 
+	, Out(mpk_new) 			 //mpk_new is public
+
+
+// Create and distribute an update value to non-revoked user I
+rule distribute_token: (*@\label{line:rule-dist-token}@*)
+	let
+	update_value = %formula for the computation of the update value (*@\label{line:placeh-comp-upd-val}@*)
+	in
+	[ !Epoch(~t_new)		// If epoch t1 exists
+	, !MSK(msk, ~t_new)		// and msk for this epoch does
+	]
+	--[ Is_Epoch(~t_new), Create_Update($I, ~t_new) ]->
+	[ !Update_Value($I, ~t_new, update_value) //create an update value for user I
+	%other output for token distribution (*@\label{line:placeh-output-token}@*)
+	]
+
+// Update the user key
+rule update_usk: (*@\label{line:rule-update-usk}@*)
+	let
+	usk_new = %formula for the computation of the usk update (*@\label{line:placeh-comp-usk}@*)
+	in
+	[ !Epoch(~t_new)            // If epoch t_new exists
+	, !PreviousEpoch(~t_old,~t_new) // as a follower of epoch t_old,
+	, !Update_Value($I, ~t_new, upd_val) // and there is a current update token for I
+	, !USK(usk_old, $I, ~t_old)]    // who had a usk in the epoch before,
+	--[ Update_USK($I, ~t_new), Exists_Key($I, usk_new, ~t_new), Is_Epoch(~t_new) ]->
+	[ !USK(usk_new, $I, ~t_new)]    // then I computes an updated usk.
+
+// Encrypt a message for a user ...
+rule encrypt_message: (*@\label{line:rule-encrypt}@*)
+    let 
+    %formula for the encryption of message m (*@\label{line:placeh-enc-rule}@*)
+    in
+    [ !MPK(mpk, ~t)             // using mpk,
+    , Fr(~m)                	// a fresh random (=unique) message m,
+    , !Epoch(~t)            	// for epoch t.
+    ]
+    --[ Used($I, ~t), Sent(~m, $I), Is_Epoch(~t)]-> 
+    [ Out(cipher)           // The cipher is sent over an insecure channel (= public knowledge).
+    ]
+    
+// Decrypt a message ...
+rule decrypt_message: (*@\label{line:rule-decrypt}@*)
+    let 
+        %pattern match for the usk (*@\label{line:placeh-dec-rule-usk}@*)
+        %pattern match for the cipher (*@\label{line:placeh-dec-rule-cipher}@*)
+        %computation formula for decrypted message (*@\label{line:placeh-dec-rule-message}@*)
+    in
+    [ In(cipher)                // (that comes from an insecure channel)
+    , !MPK(pk(msk), ~t)         // using mpk
+    , !USK(usk, $I, ~t)         // and the user I's usk.
+    ]
+    --[ Receive(m_dec), Read($I, m_dec, ~t) ]-> 
+    [ ]
+
+%any additional rules
+
+
+// Key  Leaks as defined in the adversary model
+rule leak_msk: (*@\label{line:rule-leak-msk}@*)
+    [ !MSK(msk,~t) ]
+    --[ LeakMSK() ]->
+    [ Out(msk) ]
+
+rule leak_usk: (*@\label{line:rule-leak-usk}@*)
+    [ !USK(usk, $I, ~t) ]
+    --[ LeakUSK($I, ~t) ]->
+    [ Out(usk) ]
+
+rule leak_upd_val: (*@\label{line:rule-leak-upd}@*)
+	[ !Update_Value($I, ~t, update_value_I) ]
+	--[ LeakUpdVal($I, ~t) ]->
+	[ Out(update_value_I) ]
+
+%leak for other secret values
+
+
+// Management-level constraints for the trace construction rules (*@\label{line:restrictions-begin}@*)
+// =============================================================
+
+restriction SetupOnlyOnce: "All #i #j. SetupOnlyOnce()@ i & SetupOnlyOnce()@ j ==> #i = #j"
+
+restriction End_Epoch_Once: 
+"All t #i #j. Epoch_ended(t)@ i & Epoch_ended(t)@ j ==> #i = #j"
+
+restriction End_of_Epoch_holds:
+"All t #i #j. Epoch_ended(t)@ i & Is_Epoch(t)@ j ==> #j < #i"
+
+restriction USK_Gen_or_Upd_only_once_per_epoch: 
+"All I usk1 usk2 t #i #j. Exists_Key(I, usk1, t)@ i & Exists_Key(I, usk2, t)@ j ==> #i = #j"
+
+restriction GenUSK_only_if_not_member_in_previous_epoch: 
+"All I t1 t2 #i #j. Consecutive(t1, t2)@ #j & GenUSK(I)@ #i & Is_Epoch(t2) @ #i ==> not(Ex usk #k. Exists_Key(I, usk, t1)@ #k)"
+
+restriction CreateUpdate_and_GenUSK_not_in_the_same_epoch:
+"All I t1 t2 #i #j. Consecutive(t1, t2)@ #j & Create_Update(I, t2)@ #i
+==> not (Ex #k. GenUSK(I)@ #k & Is_Epoch(t2)@ #k)"
+
+restriction CreateUpdate_only_once_per_epoch: 
+"All t I #i #j. Create_Update(I, t)@ #i & Create_Update(I, t)@ #j ==> #i = #j"
+
+restriction Update_MSK_only_once_per_epoch: 
+"All t msk1 msk2 #i #j. Update_MSK(msk1, t)@ #i & Update_MSK(msk2, t)@ #j ==> #i = #j"
+
+restriction Leak_USK_only_once_per_epoch:
+"All I t #i #j. LeakUSK(I, t)@ i & LeakUSK(I, t)@ j ==> #i = #j"
+
+
+% additional restrictions
+
+(*@\label{line:restrictions-end}@*)
+
+% sources lemmas
+
+// Sanity check lemmas
+// ===================
+lemma can_receive: exists-trace 
+	/* There exists a session in which a user can decrypt a message. */
+	"Ex m #j. Receive(m)@ #j
+	& not (Ex #i t N. LeakUSK(N,t)@ #i)
+	& not (Ex #i t. LeakMSK(t)@ #i)
+	& not (Ex I t #l. LeakUpdVal(I,t)@ #l)
+	%no other leak
+	"
+
+lemma can_receive_after_update: exists-trace 
+	/* There exists a session in which a user can decrypt a message after their key was updated. */
+	"Ex m I t t2 #j #k #l. Read(I, m, t2)@ #j
+	& Consecutive(t,t2) @ #k
+	& Update_USK(I, t2) @ #l
+	& k < j
+	& not (Ex #i t N. LeakUSK(N,t)@ #i)
+	& not (Ex #i t. LeakMSK(t)@ #i)
+	& not (Ex I t #l. LeakUpdVal(I,t)@ #l)
+	%no other leak
+	"
+
+lemma two_users_can_have_keys_in_same_epoch: exists-trace 
+	"Ex I1 I2 usk1 usk2 t #j #i. not(I1=I2) 
+	& Exists_Key(I1, usk1, t)@ #i 
+	& Exists_Key(I2, usk2, t)@ #j
+	"
+
+lemma minimal_example: exists-trace
+	"Ex 
+	t1 t2 t3 t4
+	#r1 #r2 #r3
+	A B C  D 
+	m1 m2 m3 m4
+	#ga #gc #gd
+	#s1 #s2 #s31 #s32 #s4 
+	#rm1 #rm2 #rm31 #rm4
+	#ua2 #ub2 #ub3 #uc3 #ub4 #uc4.
+	Consecutive(t1,t2)@ #r1 & Consecutive(t2,t3)@ #r2 & Consecutive(t3,t4)@ #r3 & #r1 < #r2 & #r2 < #r3 
+	& (All t5 t6 #r4. Consecutive(t5,t6)@ #r4 ==> ( #r4 = #r1 | #r4 = #r2 | #r4 = #r3)) 
+	& GenUSK(A)@ #ga & Sent(m1, B)@ #s1 & Read(B, m1, t1)@ #rm1 
+	& Update_USK(A, t2)@ #ua2 & Update_USK(B, t2)@ #ub2 & GenUSK(C)@ #gc & Sent(m2, C)@ #s2 & Read(C, m2, t2)@ #rm2 & #r1 < #gc & #gc < #r2
+	& Update_USK(B, t3)@ #ub3 & Update_USK(C, t3)@ #uc3 & not (Ex #ua3 uskA_3. Exists_Key(A, uskA_3, t3)@ #ua3) & Sent(m3, C)@ #s31 & Read(C, m3, t3)@ #rm31 & Used(A, t3)@ #s32 & not (Ex m #rm33. Read(A, m, t3)@ #rm33) 
+	& Update_USK(B, t4)@ #ub4 & Update_USK(C, t4)@ #uc4 & GenUSK(D)@ #gd & Sent(m4, D)@ #s4 & Read(D, m4, t4)@ #rm4 & #r3 < #gd
+	& not (Ex id t #leakUSK. LeakUSK(id, t)@ #leakUSK) & not (Ex #i t. LeakMSK(t)@ #i) & not (Ex I t #l. LeakUpdVal(I,t)@ #l)
+	%no other leak
+	"
+
+// Security properties
+// ===================
+
+/*
+* Forward security:
+* Messages encrypted for user I and an epoch t remain confidential,
+* even if I's secret key for later epoch t+x is leaked
+* (unless there is a trivial attack w.r.t. epoch t).
+*/
+lemma forward_security: 
+	"All m I t1 t2 #i #j #k #o.
+	Sent(m,I) @ #i
+	& Is_Epoch(t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& LeakUSK(I,t2) @ #k
+	& Is_Epoch(t2) @ #o
+	& #j < #o
+	==> not(Ex #l. K(m)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak 
+	"
+
+/*
+* Post-compromise security:
+* Messages encrypted for user I and an epoch t remain confidential,
+* even if I's secret key for an earlier epoch t-x is or was leaked
+* (unless there is a trivial attack w.r.t. epoch t).
+*/
+lemma post_compromise_security: (*@\label{line:lemma-pcs}@*)
+	"All m I t1 t2 #i #j #k.
+	LeakUSK(I,t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& Sent(m,I) @ #k
+	& Is_Epoch(t2)@ #k
+	& #j < #k
+	==> not(Ex #l. K(m) @ #l)
+	| (Ex #l. LeakUSK(I, t2)@ #l)
+	| (Ex #l. LeakMSK(t2)@ #l)
+	| (Ex #l. LeakUpdVal(I,t2)@ #l)
+	%other trivial leak
+	"
+
+/*
+* DKER forward:
+* A user I's secret key for an epoch t remains secret,
+* even if I's secret key for later epoch t+x is leaked
+* (unless there is a trivial attack w.r.t. epoch t).
+*/
+lemma decryption_key_exposure_resistance_forward: (*@\label{line:lemma-dkerf}@*)
+	"All I t1 t2 usk1 usk2 #i #j #k. 
+	Exists_Key(I, usk1, t1)@ #i
+	& Is_Epoch(t1)@ #i
+	& Exists_Key(I, usk2, t2)@#j 
+	& #i < #j
+	& LeakUSK(I, t2)@ #k
+	==> not (Ex #l. K(usk1)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+/*
+* DKER backward:
+* A user I's secret key for an epoch t remains secret,
+* even if I's secret key for an earlier epoch t-x is or was leaked
+* (unless there is a trivial attack on epoch t).
+*/
+lemma decryption_key_exposure_resistance_backward: (*@\label{line:lemma-dkerb}@*)
+	"All I t1 t2 usk1 usk2 #i #j #k. 
+	Exists_Key(I, usk1, t1)@ #i
+	& Is_Epoch(t1)@ #i
+	& Exists_Key(I, usk2, t2)@#j 
+	& #i < #j
+	& LeakUSK(I, t1)@ #k
+	==> not (Ex #l. K(usk2)@ #l)
+	| (Ex #l. LeakUSK(I, t2)@ #l)
+	| (Ex #l. LeakMSK(t2)@ #l)
+	| (Ex #l. LeakUpdVal(I,t2)@ #l)
+	%other trivial leak
+	"
+
+/*
+* Collusion resistance:
+* If no update and no fresh key were generated for user I in an epoch t,
+* the adversary can not know a message m encrypted for I
+* (unless the master secret for t is leaked).
+*/
+lemma collusion_resistance: (*@\label{line:lemma-coll-res}@*)
+	"All I m t #i.
+	Sent(m, I)@ #i
+	& Is_Epoch(t)@ #i
+	& not (Ex #j. Create_Update(I, t)@ #j)
+	& not (Ex #j. GenUSK(I)@ #j & Is_Epoch(t)@ #j)
+	==> not(Ex #l. K(m)@ #l)
+	| (Ex #l. LeakMSK(t)@ #l)
+	"
+
+// minimal assumption checks
+// =========================
+
+// Forward Security
+//-----------------
+
+// Leaking usk of the target epoch yields a trivial attack.
+lemma forward_security_uskleak_attack: 
+	"All m I t1 t2 #i #j #k #o.
+	Sent(m,I) @ #i
+	& Is_Epoch(t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& LeakUSK(I,t2) @ #k
+	& Is_Epoch(t2) @ #o
+	& #j < #o
+	==> not(Ex #l. K(m)@ #l)
+	// | (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+// Leaking msk of the target epoch yields a trivial attack.
+lemma forward_security_mskleak_attack: 
+	"All m I t1 t2 #i #j #k #o.
+	Sent(m,I) @ #i
+	& Is_Epoch(t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& LeakUSK(I,t2) @ #k
+	& Is_Epoch(t2) @ #o
+	& #j < #o
+	==> not(Ex #l. K(m)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	//| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+
+// Leaking the update value for the target epoch yields a trivial attack.
+lemma forward_security_tokenleak_attack: 
+	"All m I t1 t2 #i #j #k #o.
+	Sent(m,I) @ #i
+	& Is_Epoch(t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& LeakUSK(I,t2) @ #k
+	& Is_Epoch(t2) @ #o
+	& #j < #o
+	==> not(Ex #l. K(m)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	//| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+// There is another trivial attack.
+lemma forward_security_suskleak_attack: 
+	"All m I t1 t2 #i #j #k #o.
+	Sent(m,I) @ #i
+	& Is_Epoch(t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& LeakUSK(I,t2) @ #k
+	& Is_Epoch(t2) @ #o
+	& #j < #o
+	==> not(Ex #l. K(m)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	//%other trivial leak
+	"
+
+// Post-compromise security
+//-------------------------
+
+// Leaking usk of the target epoch yields a trivial attack.
+lemma post_compromise_security_uskleak_attack:
+	"All m I t1 t2 #i #j #k.
+	LeakUSK(I,t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& Sent(m,I) @ #k
+	& Is_Epoch(t2) @ #k
+	& #j < #k
+	==> not(Ex #l. K(m) @ #l)
+	//| (Ex #l. LeakUSK(I, t2)@ #l)
+	| (Ex #l. LeakMSK(t2)@ #l)
+	| (Ex #l. LeakUpdVal(I,t2)@ #l)
+	%other trivial leak
+	"
+
+// Leaking msk of the target epoch yields a trivial attack.
+lemma post_compromise_security_mskleak_attack:
+"All m I t1 t2 #i #j #k.
+LeakUSK(I,t1) @ #i
+& Epoch_ended(t1) @ #j
+& Sent(m,I) @ #k
+& Is_Epoch(t2) @ #k
+& #j < #k
+==> not(Ex #l. K(m) @ #l)
+| (Ex #l. LeakUSK(I, t2)@ #l)
+//| (Ex #l. LeakMSK(t2)@ #l)
+| (Ex #l. LeakUpdVal(I,t2)@ #l)
+%other trivial leak
+"
+
+// Leaking the update value for the target epoch yields a trivial attack.
+lemma post_compromise_security_tokenleak_attack:
+"All m I t1 t2 #i #j #k.
+LeakUSK(I,t1) @ #i
+& Epoch_ended(t1) @ #j
+& Sent(m,I) @ #k
+& Is_Epoch(t2) @ #k
+& #j < #k
+==> not(Ex #l. K(m) @ #l)
+| (Ex #l. LeakUSK(I, t2)@ #l)
+| (Ex #l. LeakMSK(t2)@ #l)
+//| (Ex #l. LeakUpdVal(I,t2)@ #l)
+%other trivial leak
+"
+
+// There is another trivial attack.
+lemma post_compromise_security_suskleak_attack:
+	"All m I t1 t2 #i #j #k.
+	LeakUSK(I,t1) @ #i
+	& Epoch_ended(t1) @ #j
+	& Sent(m,I) @ #k
+	& Is_Epoch(t2) @ #k
+	& #j < #k
+	==> not(Ex #l. K(m) @ #l)
+	| (Ex #l. LeakUSK(I, t2)@ #l)
+	| (Ex #l. LeakMSK(t2)@ #l)
+	| (Ex #l. LeakUpdVal(I,t2)@ #l)
+	//%other trivial leak
+	"
+
+// DKER forward
+//-------------
+
+// Leaking usk of the target epoch yields a trivial attack.
+lemma decryption_key_exposure_resistance_forward_uskleak_attack: 
+	"All I t1 t2 usk1 usk2 #i #j #k. 
+	Exists_Key(I, usk1, t1)@ #i
+	& Is_Epoch(t1)@ #i
+	& Exists_Key(I, usk2, t2)@#j 
+	& #i < #j
+	& LeakUSK(I, t2)@ #k
+	==> not (Ex #l. K(usk1)@ #l)
+	//| (Ex #l. LeakUSK(I, t1)@ #l)
+	| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+// Leaking msk of the target epoch yields a trivial attack.
+lemma decryption_key_exposure_resistance_forward_mskleak_attack: 
+	"All I t1 t2 usk1 usk2 #i #j #k. 
+	Exists_Key(I, usk1, t1)@ #i
+	& Is_Epoch(t1)@ #i
+	& Exists_Key(I, usk2, t2)@#j 
+	& #i < #j
+	& LeakUSK(I, t2)@ #k
+	==> not (Ex #l. K(usk1)@ #l)
+	| (Ex #l. LeakUSK(I, t1)@ #l)
+	//| (Ex #l. LeakMSK(t1)@ #l)
+	| (Ex #l. LeakUpdVal(I,t1)@ #l)
+	%other trivial leak
+	"
+
+// Leaking the update value for the target epoch yields a trivial attack.
+lemma decryption_key_exposure_resistance_forward_tokenleak_attack: 
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t2)@ #k
+==> not (Ex #l. K(usk1)@ #l)
+| (Ex #l. LeakUSK(I, t1)@ #l)
+| (Ex #l. LeakMSK(t1)@ #l)
+//| (Ex #l. LeakUpdVal(I,t1)@ #l)
+%other trivial leak
+"
+
+// There is another trivial attack.
+lemma decryption_key_exposure_resistance_forward_suskleak_attack: 
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t2)@ #k
+==> not (Ex #l. K(usk1)@ #l)
+| (Ex #l. LeakUSK(I, t1)@ #l)
+| (Ex #l. LeakMSK(t1)@ #l)
+| (Ex #l. LeakUpdVal(I,t1)@ #l)
+//%other trivial leak
+"
+
+
+// DKER backward
+//--------------
+
+// Leaking usk of the target epoch yields a trivial attack.
+lemma decryption_key_exposure_resistance_backward_uskleak_attack:
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t1)@ #k
+==> not (Ex #l. K(usk2)@ #l)
+//| (Ex #l. LeakUSK(I, t2)@ #l)
+| (Ex #l. LeakMSK(t2)@ #l)
+| (Ex #l. LeakUpdVal(I,t2)@ #l)
+%other trivial leak
+"
+
+// Leaking msk of the target epoch yields a trivial attack.		
+lemma decryption_key_exposure_resistance_backward_mskleak_attack:
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t1)@ #k
+==> not (Ex #l. K(usk2)@ #l)
+| (Ex #l. LeakUSK(I, t2)@ #l)
+//| (Ex #l. LeakMSK(t2)@ #l)
+| (Ex #l. LeakUpdVal(I,t2)@ #l)
+%other trivial leak
+"
+
+// Leaking the update value for the target epoch yields a trivial attack.	
+lemma decryption_key_exposure_resistance_backward_tokenleak_attack:
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t1)@ #k
+==> not (Ex #l. K(usk2)@ #l)
+| (Ex #l. LeakUSK(I, t2)@ #l)
+| (Ex #l. LeakMSK(t2)@ #l)
+//| (Ex #l. LeakUpdVal(I,t2)@ #l)
+%other trivial leak
+"
+
+// There is another trivial attack.		
+lemma decryption_key_exposure_resistance_backward_suskleak_attack:
+"All I t1 t2 usk1 usk2 #i #j #k. 
+Exists_Key(I, usk1, t1)@ #i
+& Is_Epoch(t1)@ #i
+& Exists_Key(I, usk2, t2)@#j 
+& #i < #j
+& LeakUSK(I, t1)@ #k
+==> not (Ex #l. K(usk2)@ #l)
+| (Ex #l. LeakUSK(I, t2)@ #l)
+| (Ex #l. LeakMSK(t2)@ #l)
+| (Ex #l. LeakUpdVal(I,t2)@ #l)
+//%other trivial leak
+"
+
+// Collusion resistance
+//---------------------
+
+// Leaking msk of the target epoch yields a trivial attack.
+lemma collusion_resistance_mskleak_attack:
+"All I m t #i.
+Sent(m, I)@ #i
+& Is_Epoch(t)@ #i
+& not (Ex #j. Create_Update(I, t)@ #j)
+& not (Ex #j. GenUSK(I)@ #j & Is_Epoch(t)@ #j)
+==> not(Ex #l. K(m)@ #l)
+//| (Ex #l. LeakMSK(t)@ #l)
+"
+
+end
+
+\end{lstlisting}

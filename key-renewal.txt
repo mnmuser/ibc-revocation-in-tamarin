@@ -1,0 +1,85 @@
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt]
+theory iberevocbyrenewal
+begin
+
+builtins: asymmetric-encryption, hashing
+functions: ibenc/4, ibdec/2 
+equations: ibdec(ibenc(m, I, pk(msk), t), h(I, msk, t)) = m
+\end{lstlisting}     
+
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=24]
+rule generate_user_key:
+    let
+    usk = h($I, ~msk, ~t) 
+    in
+	...
+\end{lstlisting}
+
+\vdots{}
+	
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=43]
+rule update_msk:
+	let
+	msk_new = msk_old
+	mpk_new = pk(msk_new)
+	in
+	...
+\end{lstlisting}
+
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=59]
+rule distribute_token:
+	let
+	update_value = h($I, ~msk, ~t_new) (*@\label{line:renewal-comp-upd-val}@*)
+	in
+	[ !Epoch(~t_new)
+	, !MSK(~msk, ~t_new)
+	]
+	--[ Is_Epoch(~t_new), Create_Update($I, ~t_new) ]->
+	[ !Update_Value($I, ~t_new, update_value) ] (*@\label{line:renewal-output-token}@*)
+\end{lstlisting}
+
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=70]
+rule update_usk:
+	let
+	usk_new = upd_val (*@\label{line:renewal-comp-usk}@*)
+	in
+	...
+\end{lstlisting}	
+	
+\vdots{}	
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=82]
+rule encrypt_message:
+    let 
+		cipher = ibenc(~m, $I, mpk, ~t)
+    in
+	... 
+\end{lstlisting}	
+
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=95]
+rule decrypt_message:
+    let 
+        usk = h($I, ~msk, ~t)
+        cipher = ibenc(m, $I, pk(~msk), ~t)
+        m_dec = ibdec(cipher, usk)
+    in
+	...
+\end{lstlisting}	
+
+\vdots{}
+
+\begin{lstlisting}[language=Tamarin, xleftmargin=20pt, firstnumber=158]
+// Sources lemmas
+lemma msk_mpk_never_change [sources]:
+	"All msk mpk #i.
+		Is_MPK_MSK(msk, mpk)@ #i ==> (Ex #j. Origin_MPK_MSK(msk, mpk)@ #j)"
+
+\end{lstlisting}
