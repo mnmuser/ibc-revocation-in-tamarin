@@ -69,8 +69,8 @@ Otherwise manual installation is required (as it is currently the case in Ubuntu
 
 The code ran in an virtual environment with 40 vCPU cores, 180 GB RAM and with standard Ubuntu 20.04. 
 The models took the following times to complete:
-- _ind-token-rerand.spthy_: 26 minutes
-- _ind-token-sep.spthy_: 31 minutes
+- _ind-token-rerand.spthy_ : 26 minutes
+- _ind-token-sep.spthy_ : 31 minutes
 - _key-renewal.spthy_ : 14 minutes
 - _universal-token.spthy_ : 1 hour 44 minutes
 
